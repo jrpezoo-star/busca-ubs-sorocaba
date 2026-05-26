@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Busca de Endereço por UBS - Sorocaba</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; backgroundColor: #f4f4f9; }
+        .container { max-width: 600px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 20px 10px rgba(0,0,0,0.1); }
+        input[type="text"] { width: 70%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; }
+        button { padding: 10px 15px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background-color: #0056b3; }
+        #resultado { margin-top: 20px; padding: 15px; border-radius: 4px; font-weight: bold; display: none; }
+        .sucesso { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .erro { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>Descubra sua UBS - Sorocaba</h2>
+    <p>Digite seu endereço completo (Ex: Rua XV de Novembro, Sorocaba):</p>
+    
+    <input type="text" id="endereco" placeholder="Rua, número, Sorocaba - SP">
+    <button onclick="buscarEndereco()">Buscar</button>
+
+    <div id="resultado"></div>
+</div>
+
+<script>
+    let dadosUbs = null;
+
+    // 1. Carrega o seu arquivo JSON logo que a página abre
+    fetch('abrangencia_ubs.json')
+        .then(response => {
+            if (!response.ok) throw new Error("Não foi possível carregar o arquivo de UBS.");
+            return response.json();
+        })
+        .then(data => {
+            dadosUbs = data;
+            console.log("Dados das UBS carregados com sucesso!");
+        })
+        .catch(error => {
+            mostrarResultado("Erro ao carregar banco de dados das UBS. Verifique o arquivo JSON.", "erro");
+            console.error(error);
+        });
+
+    // 2. Função principal de busca
+    function buscarEndereco() {
+        const enderecoDigitado = document.getElementById('endereco').value;
+        if (!enderecoDigitado) {
+            mostrarResultado("Por favor, digite um endereço.", "erro");
+            return;
+        }
+
+        // Para garantir que a busca seja em Sorocaba se o usuário esquecer de digitar
+        const buscaFinal = enderecoDigitado.toLowerCase().includes("sorocaba") ? enderecoDigitado : `${enderecoDigitado}, Sorocaba, SP`;
+
+        mostrarResultado("Buscando endereço...", "sucesso");
+
+        // Usando a API gratuita do OpenStreetMap (Nominatim) para transformar texto em coordenadas
+        const urlGeocode = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(buscaFinal)}&limit=1`;
+
+        fetch(urlGeocode)
+            .then(response => response.json())
+            .then(resultados => {
+                if (resultados.length === 0) {
+                    throw new Error("Endereço não encontrado. Tente incluir o número ou bairro.");
+                }
+
+                // Coordenadas encontradas (Atenção: Nominatim traz lat/lon como texto, convertemos para número)
+                const lat = parseFloat(resultados[0].lat);
+                const lon = parseFloat(resultados[0].lon);
+
+                // Criamos um "ponto" no formato geográfico usando o Turf.js
+                const pontoBusca = turf.point([lon, lat]);
+
+                // 3. Verificação: Varre o JSON para ver em qual polígono o ponto está dentro
+                let ubsEncontrada = null;
+
+                turf.featureEach(dadosUbs, function (currentFeature) {
+                    // Verifica se o ponto está dentro do polígono atual
+                    if (turf.booleanPointInPolygon(pontoBusca, currentFeature)) {
+                        // Pega o nome da UBS dentro da coluna/propriedade "UBS" do seu JSON
+                        ubsEncontrada = currentFeature.properties.UBS; 
+                    }
+                });
+
+                if (ubsEncontrada) {
+                    mostrarResultado(`O endereço informado pertence à área de abrangência da: <br>📍 ${ubsEncontrada}`, "sucesso");
+                } else {
+                    mostrarResultado("Endereço localizado, mas fica fora das áreas de abrangência cadastradas (fora de Sorocaba ou zona rural não coberta).", "erro");
+                }
+            })
+            .catch(error => {
+                mostrarResultado(error.message, "erro");
+            });
+    }
+
+    // Função auxiliar para mostrar mensagens na tela
+    function mostrarResultado(mensagem, tipo) {
+        const divResultado = document.getElementById('resultado');
+        divResultado.innerHTML = mensaje = mensagem;
+        divResultado.style.display = 'block';
+        divResultado.className = tipo === 'sucesso' ? 'sucesso' : 'erro';
+    }
+</script>
+
+</body>
+</html>
