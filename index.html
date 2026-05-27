@@ -3,111 +3,210 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Busca de Endereço por UBS - Sorocaba</title>
+    <title>Busca de UBS - Sorocaba</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
-
+    
     <style>
-        body { font-family: Arial, sans-serif; margin: 20px; backgroundColor: #f4f4f9; }
-        .container { max-width: 600px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 20px 10px rgba(0,0,0,0.1); }
-        input[type="text"] { width: 70%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; }
-        button { padding: 10px 15px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
-        button:hover { background-color: #0056b3; }
-        #resultado { margin-top: 20px; padding: 15px; border-radius: 4px; font-weight: bold; display: none; }
-        .sucesso { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
-        .erro { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 20px;
+            background-color: #f7f9fc;
+            color: #333;
+        }
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        #controls {
+            margin-bottom: 20px;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            display: flex;
+            gap: 10px;
+        }
+        #endereco {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+        button {
+            padding: 10px 20px;
+            background-color: #0056b3;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        button:hover {
+            background-color: #004085;
+        }
+        #map {
+            height: 500px;
+            width: 100%;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        }
+        #resultado {
+            margin-bottom: 20px;
+            padding: 15px;
+            background: #e9ecef;
+            border-left: 5px solid #6c757d;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+        .sucesso {
+            border-left-color: #28a745 !important;
+            background-color: #d4edda !important;
+        }
+        .erro {
+            border-left-color: #dc3545 !important;
+            background-color: #f8d7da !important;
+        }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h2>Descubra sua UBS - Sorocaba</h2>
-    <p>Digite seu endereço completo (Ex: Rua XV de Novembro, Sorocaba):</p>
+    <h2>Identificar UBS de Referência - Sorocaba</h2>
     
-    <input type="text" id="endereco" placeholder="Rua, número, Sorocaba - SP">
-    <button onclick="buscarEndereco()">Buscar</button>
+    <div id="controls">
+        <input type="text" id="endereco" placeholder="Digite o endereço (Ex: Av. Afonso Vergueiro, 123)">
+        <button onclick="buscarEndereco()">Buscar Região</button>
+    </div>
 
-    <div id="resultado"></div>
+    <div id="resultado">Digite um endereço acima para iniciar o cruzamento de dados.</div>
+    
+    <div id="map"></div>
 </div>
 
-<script>
-    let dadosUbs = null;
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-    // 1. Carrega o seu arquivo JSON logo que a página abre
-    fetch('abrangencia_ubs.json')
+<script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCqikXLXL47_PQzz94BH05SIlSxkUx8bPg"></script>
+
+<script>
+    // 1. Inicializa o mapa do Leaflet centralizado em Sorocaba
+    const map = L.map('map').setView([-23.5015, -47.4521], 13);
+    
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
+
+    let geojsonData = null;
+    let marker = null;
+    
+    // Instancia o geocodificador do Google Maps
+    const geocoder = new google.maps.Geocoder();
+
+    // 2. Carrega o arquivo de polígonos (abrangencia_ubs.json)
+    // Se estiver na mesma pasta do repositório do GitHub, a rota relativa funciona perfeitamente.
+    const URL_JSON = 'abrangencia_ubs.json'; 
+
+    fetch(URL_JSON)
         .then(response => {
-            if (!response.ok) throw new Error("Não foi possível carregar o arquivo de UBS.");
+            if (!response.ok) throw new Error('Erro ao carregar a base de dados das UBSs.');
             return response.json();
         })
         .then(data => {
-            dadosUbs = data;
-            console.log("Dados das UBS carregados com sucesso!");
+            geojsonData = data;
+            
+            // Plota os polígonos transparentes no mapa para referência visual do usuário
+            L.geoJSON(data, {
+                style: function (feature) {
+                    return { color: "#007bff", weight: 2, fillOpacity: 0.1 };
+                },
+                onEachFeature: function (feature, layer) {
+                    const props = feature.properties;
+                    const nomeUbs = props.UBS || props.ubs || 'Unidade';
+                    layer.bindPopup(`<b>Unidade:</b> ${nomeUbs}`);
+                }
+            }).addTo(map);
+            
+            console.log('Polígonos de abrangência carregados com sucesso.');
         })
         .catch(error => {
-            mostrarResultado("Erro ao carregar banco de dados das UBS. Verifique o arquivo JSON.", "erro");
             console.error(error);
+            document.getElementById('resultado').innerHTML = '<p class="erro">Não foi possível carregar o arquivo de abrangência geoespacial.</p>';
         });
 
-    // 2. Função principal de busca
+    // 3. Função executada ao clicar no botão
     function buscarEndereco() {
-        const enderecoDigitado = document.getElementById('endereco').value;
-        if (!enderecoDigitado) {
-            mostrarResultado("Por favor, digite um endereço.", "erro");
+        const enderecoInput = document.getElementById('endereco').value.trim();
+        
+        if (!enderecoInput) {
+            alert('Por favor, informe um endereço.');
             return;
         }
 
-        // Para garantir que a busca seja em Sorocaba se o usuário esquecer de digitar
-        const buscaFinal = enderecoDigitado.toLowerCase().includes("sorocaba") ? enderecoDigitado : `${enderecoDigitado}, Sorocaba, SP`;
+        if (!geojsonData) {
+            alert('A base de dados de polígonos ainda está carregando. Tente novamente em um segundo.');
+            return;
+        }
 
-        mostrarResultado("Buscando endereço...", "sucesso");
+        // Adiciona o sufixo da cidade para evitar que o Google busque homônimos em outras capitais
+        const enderecoCompleto = `${enderecoInput}, Sorocaba, SP, Brasil`;
 
-        // Usando a API gratuita do OpenStreetMap (Nominatim) para transformar texto em coordenadas
-        const urlGeocode = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(buscaFinal)}&limit=1`;
+        // Chama o Geocoder do Google
+        geocoder.geocode({ address: enderecoCompleto }, function(results, status) {
+            if (status === 'OK' && results[0]) {
+                const loc = results[0].geometry.location;
+                const lat = loc.lat();
+                const lng = loc.lng();
 
-        fetch(urlGeocode)
-            .then(response => response.json())
-            .then(resultados => {
-                if (resultados.length === 0) {
-                    throw new Error("Endereço não encontrado. Tente incluir o número ou bairro.");
-                }
+                // Atualiza o mapa Leaflet para o ponto encontrado
+                map.setView([lat, lng], 16);
+                if (marker) map.removeLayer(marker);
+                
+                marker = L.marker([lat, lng]).addTo(map)
+                    .bindPopup(`<b>Localizado:</b><br>${results[0].formatted_address}`)
+                    .openPopup();
 
-                // Coordenadas encontradas (Atenção: Nominatim traz lat/lon como texto, convertemos para número)
-                const lat = parseFloat(resultados[0].lat);
-                const lon = parseFloat(resultados[0].lon);
-
-                // Criamos um "ponto" no formato geográfico usando o Turf.js
-                const pontoBusca = turf.point([lon, lat]);
-
-                // 3. Verificação: Varre o JSON para ver em qual polígono o ponto está dentro
+                // CRÍTICO: O Google trabalha com [Latitude, Longitude], mas o Turf.js 
+                // segue a convenção GeoJSON restrita: [Longitude, Latitude].
+                const pontoBusca = turf.point([lng, lat]);
                 let ubsEncontrada = null;
 
-                turf.featureEach(dadosUbs, function (currentFeature) {
-                    // Verifica se o ponto está dentro do polígono atual
+                // Varre os polígonos com o Turf.js buscando a intersecção
+                turf.featureEach(geojsonData, function(currentFeature) {
                     if (turf.booleanPointInPolygon(pontoBusca, currentFeature)) {
-                        // Pega o nome da UBS dentro da coluna/propriedade "UBS" do seu JSON
-                        ubsEncontrada = currentFeature.properties.UBS; 
+                        ubsEncontrada = currentFeature.properties;
                     }
                 });
 
+                // 4. Exibe o resultado na interface mapeando as colunas padrão Datasus
+                const containerResultado = document.getElementById('resultado');
+                
                 if (ubsEncontrada) {
-                    mostrarResultado(`O endereço informado pertence à área de abrangência da: <br>📍 ${ubsEncontrada}`, "sucesso");
+                    containerResultado.className = "sucesso";
+                    containerResultado.innerHTML = `
+                        <h3 style="margin-top: 0; color: #155724;">✓ Região Mapeada com Sucesso</h3>
+                        <p><strong>UBS de Referência:</strong> ${ubsEncontrada.UBS || ubsEncontrada.ubs || 'N/A'}</p>
+                        <p><strong>Bairro:</strong> ${ubsEncontrada.bairro || ubsEncontrada.Bairro || 'N/A'}</p>
+                        <p><strong>Regional:</strong> ${ubsEncontrada.regional || 'N/A'}</p>
+                        <p><strong>Colegiado / Microrregião:</strong> ${ubsEncontrada.colegiado || ubsEncontrada.microrregiao || 'N/A'}</p>
+                        <small style="color: #555;">Correspondente ao endereço: <i>${results[0].formatted_address}</i></small>
+                    `;
                 } else {
-                    mostrarResultado("Endereço localizado, mas fica fora das áreas de abrangência cadastradas (fora de Sorocaba ou zona rural não coberta).", "erro");
+                    containerResultado.className = "erro";
+                    containerResultado.innerHTML = `
+                        <h3 style="margin-top: 0; color: #721c24;">⚠ Fora da Área de Abrangência</h3>
+                        <p>O endereço foi encontrado pelo Google Maps, mas as coordenadas caíram fora dos polígonos mapeados no arquivo JSON.</p>
+                        <small style="color: #555;">Endereço analisado: <i>${results[0].formatted_address}</i></small>
+                    `;
                 }
-            })
-            .catch(error => {
-                mostrarResultado(error.message, "erro");
-            });
-    }
 
-    // Função auxiliar para mostrar mensagens na tela
-    function mostrarResultado(mensagem, tipo) {
-        const divResultado = document.getElementById('resultado');
-        divResultado.innerHTML = mensaje = mensagem;
-        divResultado.style.display = 'block';
-        divResultado.className = tipo === 'sucesso' ? 'sucesso' : 'erro';
+            } else {
+                alert('O Google Maps não conseguiu encontrar este endereço. Motivo: ' + status);
+            }
+        });
     }
 </script>
 
